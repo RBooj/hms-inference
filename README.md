@@ -8,14 +8,16 @@ Incorporate other telemetry measurements in state classification (temperature, h
 Project Structure
 ```
 hms-inference/
+    pyproject.toml
     README.md
     requirements.txt
+    scripts/
+        embed_one.py
     src/
         hms_inference/
-            __init__.py
+            ast_embedder.py
+            audio_io.py
+            __init__.py   
         data/
             UrBAN/
-```
-
-Github ignores:
-    
+``` 
