@@ -1,7 +1,19 @@
-.venv/
+# Python ignored files
 __pycache__/
-*.pyc
-data/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
 *.egg-info/
-build/
 dist/
+build/
+
+# venv ignored files
+.venv/
+venv/
+
+# local data/outputs
+data/
+*.npy
+*.pt
+*.ckpt
