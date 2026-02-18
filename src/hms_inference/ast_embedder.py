@@ -52,7 +52,7 @@ class ASTEmbedder:
             emb = last_hidden.mean(dim=0)
 
         return ASTEmbeddingResult(
-            embedding=emb.detech().cpu(),
+            embedding=emb.detach().cpu(),
             hidden_dim=int(emb.shape[0]),
             model_name=self.model_name,
         )
