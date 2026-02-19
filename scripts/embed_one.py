@@ -17,7 +17,7 @@ def main() -> None:
     )
     p.add_argument(
         "--model",
-        default="MIT/ast-finetuned-audioset-10-10-0",
+        default="MIT/ast-finetuned-audioset-14-14-0.443",
         help="HuggingFace model id",
     )
     args = p.parse_args()
@@ -25,6 +25,8 @@ def main() -> None:
     wav_path = Path(args.wav_path)
     if not wav_path.exists():
         raise FileNotFoundError(wav_path)
+    if wav_path.suffix.lower() != ".wav":
+        raise ValueError(f"Expected a .wav file, got: {wav_path}")
 
     waveform = load_audio_mono_16k(str(wav_path))
     embedder = ASTEmbedder(model_name=args.model)
@@ -40,6 +42,10 @@ def main() -> None:
         "embedding_dim": result.hidden_dim,
         "saved_to": args.out,
     }
+
+    print(
+        f"[embed_one main] embedding tensor: shape={tuple(result.embedding.shape)}, dtype={result.embedding.dtype}"
+    )
     print(json.dumps(meta, indent=2))
     print("First 10 values:", emb[:10])
 
