@@ -3,13 +3,13 @@ from pathlib import Path
 from datetime import timedelta
 
 from hms_inference.audio_chunk import chunk_30s_to_10s_5overlap
-from hms_inference.audio_discovery import find_wavs
 from hms_inference.audio_parse import parse_urban_wav_name
 
 PROJECT_ROOT = Path.cwd()
 DATA_ROOT = PROJECT_ROOT / "data" / "UrBAN" / "data"
 AUDIO_ROOT_2021 = DATA_ROOT / "audio" / "beehives_2021"
 AUDIO_ROOT_2022 = DATA_ROOT / "audio" / "beehives_2022"
+
 
 def build_chunk_index(wav_paths: list[Path], dataset_year: int) -> pd.DataFrame:
     chunk_plan = chunk_30s_to_10s_5overlap()
@@ -36,9 +36,12 @@ def build_chunk_index(wav_paths: list[Path], dataset_year: int) -> pd.DataFrame:
                 }
             )
 
-    return pd.DataFrame(rows)
+    chunk = pd.DataFrame(rows)
+    chunk["hive_id"] = pd.to_numeric(chunk["hive_id"], errors="coerce").astype("Int64")
+    return chunk
 
-test_wavs = find_wavs(AUDIO_ROOT_2021)
-df = build_chunk_index(test_wavs[:20], dataset_year=2021)
-print(df.head())
-print("rows:" , len(df), "expected:", len(test_wavs[:20])*5)
+
+# test_wavs = find_wavs(AUDIO_ROOT_2021)
+# df = build_chunk_index(test_wavs[:20], dataset_year=2021)
+# print(df.head())
+# print("rows:" , len(df), "expected:", len(test_wavs[:20])*5)

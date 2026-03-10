@@ -16,10 +16,10 @@ def find_wavs(audio_root: Path) -> list[Path]:
     return sorted(wavs)
 
 
-wavs_2021 = find_wavs(AUDIO_ROOT_2021)
-wavs_2022 = find_wavs(AUDIO_ROOT_2022)
-
-print("2021 wavs found: ", len(wavs_2021))
-print("2022 wavs found: ", len(wavs_2022))
-print("Example (2021): ", wavs_2021[0] if wavs_2021 else None)
-print("Example (2022): ", wavs_2022[0] if wavs_2022 else None)
+# wavs_2021 = find_wavs(AUDIO_ROOT_2021)
+# wavs_2022 = find_wavs(AUDIO_ROOT_2022)
+#
+# print("2021 wavs found: ", len(wavs_2021))
+# print("2022 wavs found: ", len(wavs_2022))
+# print("Example (2021): ", wavs_2021[0] if wavs_2021 else None)
+# print("Example (2022): ", wavs_2022[0] if wavs_2022 else None)

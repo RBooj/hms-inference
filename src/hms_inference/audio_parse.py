@@ -26,7 +26,7 @@ FILENAME_RE = re.compile(
 
 def parse_urban_wav_name(path: Path) -> AudioMeta:
     m = FILENAME_RE.search(path.name)
-    print(m)
+    # print(m)
     if not m:
         raise ValueError(f"Unrecognized UrBAN wav filename: {path.name}")
 
@@ -43,6 +43,6 @@ def parse_urban_wav_name(path: Path) -> AudioMeta:
     return AudioMeta(hive_id=hive_id, recording_start=recording_start)
 
 
-print(f"Looking in: {Path.cwd()} for file: {Path("11-08-2021_20h00_HIVE-3631.WAV")}")
-test = Path("11-08-2021_20h00_HIVE-3631.WAV")
-print(parse_urban_wav_name(test))
+# print(f"Looking in: {Path.cwd()} for file: {Path("11-08-2021_20h00_HIVE-3631.WAV")}")
+# test = Path("11-08-2021_20h00_HIVE-3631.WAV")
+# print(parse_urban_wav_name(test))
