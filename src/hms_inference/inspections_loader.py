@@ -7,6 +7,7 @@ VALID_HIVE_GRADING_2022 = {
     "medium": "medium",
     "strong": "strong",
 }
+VARROA_HIGH_THRESHOLD = 10
 
 
 def load_inspections_2022(project_root: Path) -> pd.DataFrame:
@@ -47,7 +48,6 @@ def load_inspections_2022(project_root: Path) -> pd.DataFrame:
         values="Action detail",
         aggfunc="first",
     ).reset_index()
-
     pivot.columns.name = None
 
     # rename columns
@@ -64,22 +64,10 @@ def load_inspections_2022(project_root: Path) -> pd.DataFrame:
     pivot["hive_grading_raw"] = (
         pivot["hive_grading_raw"].astype("string").str.strip().str.lower()
     )
-
     pivot["hive_status_raw"] = (
         pivot["hive_status_raw"].astype("string").str.strip().str.lower()
     )
-
     pivot["hive_state"] = pivot["hive_grading_raw"].map(VALID_HIVE_GRADING_2022)
-    pivot.loc[pivot["hive_status_raw"] == "deadout", "hive_state"] = "deadout"
-
-    # pivot = pivot.drop(columns=["hive_grading_raw", "hive_status_raw"], errors="ignore")
-
-    # parse queen status from original data column
-    queen_table = df.groupby(["hive_id", "inspection_date"], as_index=False)[
-        "queen_present"
-    ].first()
-
-    pivot = pivot.merge(queen_table, on=["hive_id", "inspection_date"], how="outer")
 
     # normalize hive_state to desired labels only
     pivot["hive_state"] = (
@@ -90,18 +78,34 @@ def load_inspections_2022(project_root: Path) -> pd.DataFrame:
         .map(VALID_HIVE_GRADING_2022)
     )
 
+    # parse queen status from original data column
+    queen_table = df.groupby(["hive_id", "inspection_date"], as_index=False)[
+        "queen_present"
+    ].first()
+    pivot = pivot.merge(queen_table, on=["hive_id", "inspection_date"], how="outer")
+    pivot.loc[pivot["hive_status_raw"] == "deadout", "queen_present"] = False
+    pivot.loc[pivot["hive_status_raw"] == "deadout", "hive_state"] = "deadout"
+    pivot = pivot.drop(columns=["hive_grading_raw", "hive_status_raw"], errors="ignore")
+
     # parse frames of bees and varroa count
     pivot["frames_of_bees"] = pd.to_numeric(pivot["frames_of_bees"], errors="coerce")
     pivot["varroa_count"] = pd.to_numeric(pivot["varroa_raw"], errors="coerce")
     pivot = pivot.drop(columns=["varroa_raw"], errors="ignore")
 
-    # drop rows where all relevent outputs are missing
-    # pivot = pivot.dropna(
-    #     subset=["queen_present", "hive_state", "frames_of_bees", "varroa_count"],
-    #     how="all",
-    # )
+    # derive "varroa_high" from varroa counts.
+    pivot["varroa_high"] = (
+            pivot["varroa_count"] >= VARROA_HIGH_THRESHOLD
+            ).where(pivot["varroa_count"].notna())
+    pivot = pivot.drop(columns=["varroa_count"], errors="ignore")
 
+    # drop rows where all relevent outputs are missing
+    pivot = pivot.dropna(
+        subset=["queen_present", "hive_state", "frames_of_bees", "varroa_high"],
+        how="all",
+    )
     pivot = pivot.sort_values(["hive_id", "inspection_date"]).reset_index(drop=True)
+    pivot["queen_present"] = pivot["queen_present"].astype("boolean")
+
 
     return pivot
 
@@ -180,7 +184,7 @@ if __name__ == "__main__":
     print(inspections_2022["frames_of_bees"].describe())
 
     print("\nVarroa stats:")
-    print(inspections_2022["varroa_count"].describe())
+    print(inspections_2022["varroa_high"].describe())
 
     # save to csv for inspection
     inspections_2022.to_csv("inspections_2022_parsed_data.csv")
