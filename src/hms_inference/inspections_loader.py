@@ -93,9 +93,9 @@ def load_inspections_2022(project_root: Path) -> pd.DataFrame:
     pivot = pivot.drop(columns=["varroa_raw"], errors="ignore")
 
     # derive "varroa_high" from varroa counts.
-    pivot["varroa_high"] = (
-            pivot["varroa_count"] >= VARROA_HIGH_THRESHOLD
-            ).where(pivot["varroa_count"].notna())
+    pivot["varroa_high"] = (pivot["varroa_count"] >= VARROA_HIGH_THRESHOLD).where(
+        pivot["varroa_count"].notna()
+    )
     pivot = pivot.drop(columns=["varroa_count"], errors="ignore")
 
     # drop rows where all relevent outputs are missing
@@ -105,7 +105,6 @@ def load_inspections_2022(project_root: Path) -> pd.DataFrame:
     )
     pivot = pivot.sort_values(["hive_id", "inspection_date"]).reset_index(drop=True)
     pivot["queen_present"] = pivot["queen_present"].astype("boolean")
-
 
     return pivot
 
