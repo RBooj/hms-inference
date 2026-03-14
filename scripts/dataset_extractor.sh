@@ -25,7 +25,7 @@ extract_archives_in_dir() {
     echo "[UrBAN Extractor] $label: discovered $total_archives archives in $archive_dir"
     echo "[UrBAN Extractor[ $label: discovered $total_wavs existing wavs in $archive_dir"
 
-    if [ "$total" -eq 0 ]; then
+    if [ "$total_archives" -eq 0 ]; then
         echo "[UrBAN Extractor] $label: nothing to extract."
         return 0
     fi
