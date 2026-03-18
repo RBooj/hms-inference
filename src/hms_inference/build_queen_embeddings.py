@@ -124,10 +124,10 @@ def main() -> None:
     df = pd.read_parquet(split_path)
 
     # smoke test subset
-    df = df.head(TEST_LIMIT_ROWS).copy()
+    # df = df.head(TEST_LIMIT_ROWS).copy()
 
-    print(f"[Embed] Rows selected for test: {len(df)}")
-    print(f"[Embed] Unique wavs in test subset: {df['wav_path'].nunique()}")
+    print(f"[Embed] Rows selected: {len(df)}")
+    print(f"[Embed] Unique wavs in subset: {df['wav_path'].nunique()}")
     print(f"[Embed] Label counts:\n{df['queen_present'].value_counts(dropna=False)}")
 
     print(f"[Embed] Initializing AST embedder on device={DEVICE}")
@@ -141,9 +141,9 @@ def main() -> None:
     print(f"[Embed] Label counts (0/1): {np.bincount(y)}")
 
     # save outputs
-    meta_out = embeddings_dir / f"{TEST_SPLIT_NAME}_test_meta.parquet"
-    x_out = embeddings_dir / f"{TEST_SPLIT_NAME}_test_embeddings.npy"
-    y_out = embeddings_dir / f"{TEST_SPLIT_NAME}_test_labels.npy"
+    meta_out = embeddings_dir / f"{TEST_SPLIT_NAME}_meta.parquet"
+    x_out = embeddings_dir / f"{TEST_SPLIT_NAME}_embeddings.npy"
+    y_out = embeddings_dir / f"{TEST_SPLIT_NAME}_labels.npy"
 
     meta_df.to_parquet(meta_out, index=False)
     np.save(x_out, X)
