@@ -24,6 +24,8 @@ from hms_inference.label_join import (
 )
 
 MAX_GAP_DAYS = 21
+WINDOW_S = 10
+HOP_S = 10
 
 
 def ensure_processed_dir(project_root: Path) -> Path:
@@ -52,8 +54,12 @@ def main() -> None:
     print(f"[Build] 2022 WAVs found: {len(wavs_2022)}")
 
     print("\n[Build] Building audio chunk indices...")
-    chunks_2021 = build_chunk_index(wavs_2021, dataset_year=2021)
-    chunks_2022 = build_chunk_index(wavs_2022, dataset_year=2022)
+    chunks_2021 = build_chunk_index(
+        wavs_2021, dataset_year=2021, window_s=WINDOW_S, hop_s=HOP_S
+    )
+    chunks_2022 = build_chunk_index(
+        wavs_2022, dataset_year=2022, window_s=WINDOW_S, hop_s=HOP_S
+    )
 
     print(f"[Build] 2021 audio chunk rows: {len(chunks_2021)}")
     print(f"[Build] 2022 audio chunk rows: {len(chunks_2022)}")
