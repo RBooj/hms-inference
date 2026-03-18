@@ -11,6 +11,17 @@ VARROA_HIGH_THRESHOLD = 10
 
 
 def load_inspections_2022(project_root: Path) -> pd.DataFrame:
+    """
+    Returns a DataFrame with rows for each inspection
+    and columns for each inspection results/notes
+    Columns:
+        - hive_id (Int64)
+        - inspection_date (pd datetime)
+        - frames_of_bees (float64)
+        - hive_state (string)
+        - queen_present (boolean)
+        - varroa_high (boolean)
+    """
     csv_path = (
         project_root
         / "data"
@@ -105,11 +116,21 @@ def load_inspections_2022(project_root: Path) -> pd.DataFrame:
     )
     pivot = pivot.sort_values(["hive_id", "inspection_date"]).reset_index(drop=True)
     pivot["queen_present"] = pivot["queen_present"].astype("boolean")
+    pivot["varroa_high"] = pivot["varroa_high"].astype("boolean")
 
     return pivot
 
 
 def load_inspections_2021(project_root: Path) -> pd.DataFrame:
+    """
+    Returns a DataFrame with rows for each inspection
+    and columns for each inspection results/notes
+    Columns:
+        - hive_id (Int64)
+        - inspection_date (pd datetime)
+        - queen_present (boolean)
+        - fob_total (float64)
+    """
     csv_path = (
         project_root
         / "data"
@@ -145,6 +166,8 @@ def load_inspections_2021(project_root: Path) -> pd.DataFrame:
     )
     out = out.sort_values(["hive_id", "inspection_date"]).reset_index(drop=True)
 
+    out["queen_present"] = out["queen_present"].astype("boolean")
+
     return out
 
 
@@ -163,6 +186,8 @@ if __name__ == "__main__":
         "Queen Present true reported: \n",
         inspections_2021["queen_present"].value_counts(dropna=False),
     )
+
+    print(inspections_2021.dtypes)
 
     inspections_2022 = load_inspections_2022(project_root)
 
@@ -187,3 +212,5 @@ if __name__ == "__main__":
 
     # save to csv for inspection
     inspections_2022.to_csv("inspections_2022_parsed_data.csv")
+
+    print(inspections_2022.dtypes)
