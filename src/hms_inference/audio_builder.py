@@ -1,8 +1,10 @@
 import pandas as pd
+import torchaudio
+
 from pathlib import Path
 from datetime import timedelta
 
-from hms_inference.audio_chunk import chunk_30s_to_10s_5overlap
+from hms_inference.audio_chunk import chunk_audio_duration
 from hms_inference.audio_parse import parse_urban_wav_name
 
 PROJECT_ROOT = Path.cwd()
@@ -11,12 +13,28 @@ AUDIO_ROOT_2021 = DATA_ROOT / "audio" / "beehives_2021"
 AUDIO_ROOT_2022 = DATA_ROOT / "audio" / "beehives_2022"
 
 
-def build_chunk_index(wav_paths: list[Path], dataset_year: int) -> pd.DataFrame:
-    chunk_plan = chunk_30s_to_10s_5overlap()
+def get_audio_duration_seconds(wav_path: Path) -> float:
+    info = torchaudio.info(str(wav_path))
+    if info.sample_rate <= 0:
+        raise ValueError(f"Invalid sample rate for {wav_path}: {info.sample_rate}")
+    return info.num_frames / info.sample_rate
+
+
+def build_chunk_index(
+    wav_paths: list[Path],
+    dataset_year: int,
+    *,
+    window_s: float = 10.0,
+    hop_s: float = 10.0,
+) -> pd.DataFrame:
     rows = []
 
     for wav_path in wav_paths:
         meta = parse_urban_wav_name(wav_path)
+        duration_s = get_audio_duration_seconds(wav_path)
+        chunk_plan = chunk_audio_duration(
+            total_duration_s=duration_s, window_s=window_s, hop_s=hop_s
+        )
 
         for ch in chunk_plan:
             chunk_start_dt = meta.recording_start + timedelta(seconds=ch.start_s)
@@ -41,7 +59,14 @@ def build_chunk_index(wav_paths: list[Path], dataset_year: int) -> pd.DataFrame:
     return chunk
 
 
-# test_wavs = find_wavs(AUDIO_ROOT_2021)
-# df = build_chunk_index(test_wavs[:20], dataset_year=2021)
-# print(df.head())
-# print("rows:" , len(df), "expected:", len(test_wavs[:20])*5)
+if __name__ == "__main__":
+    from hms_inference.audio_discovery import find_wavs
+
+    test_wavs = find_wavs(AUDIO_ROOT_2021)
+    df = build_chunk_index(test_wavs[:3], dataset_year=2021, window_s=10.0, hop_s=10.0)
+
+    print(df.head(15).to_string(index=False))
+    print("\nrows:", len(df))
+
+    print("\nChunks per wav:")
+    print(df.groupby("wav_path")["chunk_idx"].count())
