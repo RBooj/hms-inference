@@ -1,5 +1,5 @@
 import pandas as pd
-import torchaudio
+from torchcodec.decoders import AudioDecoder
 
 from pathlib import Path
 from datetime import timedelta
@@ -14,10 +14,8 @@ AUDIO_ROOT_2022 = DATA_ROOT / "audio" / "beehives_2022"
 
 
 def get_audio_duration_seconds(wav_path: Path) -> float:
-    info = torchaudio.info(str(wav_path))
-    if info.sample_rate <= 0:
-        raise ValueError(f"Invalid sample rate for {wav_path}: {info.sample_rate}")
-    return info.num_frames / info.sample_rate
+    decoder = AudioDecoder(str(wav_path))
+    return decoder.metadata.duration_seconds
 
 
 def build_chunk_index(
