@@ -65,8 +65,8 @@ def build_embeddings_for_split(
                     "[Embed] Warning: chunk length is not exactly 160000 samples. "
                     f"Got {chunk.numel()} for wav={wav_path}, chunk_idx={row['chunk_idx']}"
                 )
-
-            emb = embedder.embed(chunk)
+            result = embedder.embed(chunk)
+            emb = result.embedding
 
             # convert embedding tensor -> 1D numpy array
             if isinstance(emb, torch.Tensor):
