@@ -30,9 +30,9 @@ extract_archives_in_dir() {
         return 0
     fi
 
-    for archive in "$archives[@]}"; do
+    for archive in "${archives[@]}"; do
         count=$((count + 1))
-        local archive_name=$(basemane "$archive")
+        local archive_name=$(basename "$archive")
 
         echo "[UrBAN Extractor] $label [$count/$total_archives] Extracting: $archive_name"
 
