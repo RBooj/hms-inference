@@ -10,7 +10,7 @@ import torch
 from hms_inference.audio_io import load_audio_mono_16k, slice_waveform_chunk
 from hms_inference.ast_embedder import ASTEmbedder
 
-TEST_SPLIT_NAME = "queen_train"
+TEST_SPLIT_NAME = "queen_val"
 TEST_LIMIT_ROWS = 100
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
