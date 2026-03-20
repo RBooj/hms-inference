@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pandas as pd
 import re
 import torch
@@ -7,7 +8,6 @@ from torchcodec.decoders import AudioDecoder
 from pathlib import Path
 from datetime import timedelta, datetime
 from dataclasses import dataclass
-from __future__ import annotations
 
 # Constants for chunking stradegy
 DEFAULT_CHUNK_LENGTH = 10.0

@@ -146,9 +146,7 @@ def load_inspections_2021(project_root: Path) -> pd.DataFrame:
 
     # parse date - 2021 data only has date, not time.
     # Assume 12 noon as time
-    date = pd.to_datetime(df["Date"], errors="coerce")
-    df["inspection_date"] = date + pd.Timedelta(hours=12)
-    df["inspection_date"] = date + pd.to_datetime(df["inspection_date"], utc=True)
+    df["inspection_date"] = ( pd.to_datetime(df["Date"], errors="coerce", utc=True) + pd.Timedelta(hours=12) )
 
     # parse queen presence check
     # define "QR" = queenright "QNS" = queen not seen

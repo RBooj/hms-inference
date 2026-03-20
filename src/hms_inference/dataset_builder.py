@@ -7,11 +7,9 @@ from hms_inference.audio_inspect_joiner import (
     attach_inspection_labels_2022,
 )
 
-PROCESSED_DATA_DIR = "data" / "processed"
-
 
 def ensure_processed_dir(project_root: Path) -> Path:
-    processed_dir = project_root / PROCESSED_DATA_DIR
+    processed_dir = project_root / "data" / "processed"
     processed_dir.mkdir(parents=True, exist_ok=True)
     return processed_dir
 
@@ -51,3 +49,6 @@ def build_dataset() -> None:
 
     print("\n[Build Dataset] Done.")
     print(f"[Build Dataset] Outputs written to: {processed_dir}")
+
+if __name__ == "__main__":
+    build_dataset()

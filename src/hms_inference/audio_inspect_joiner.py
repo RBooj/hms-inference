@@ -1,6 +1,5 @@
-import pandas as pd
-
 from __future__ import annotations
+import pandas as pd
 from pathlib import Path
 
 from hms_inference.inspections_loader import (
@@ -9,8 +8,6 @@ from hms_inference.inspections_loader import (
 )
 from hms_inference.audio_loader import discover_wav_files, build_chunk_df
 
-AUDIO_ROOT_2021 = "data" / "UrBAN" / "data" / "audio" / "beehives_2021"
-AUDIO_ROOT_2022 = "data" / "UrBAN" / "data" / "audio" / "beehives_2022"
 MAX_GAP_DAYS = 21  # Be > 0
 
 
@@ -22,7 +19,7 @@ def attach_inspection_labels_2022() -> pd.DataFrame:
     attach annotations to audio chunks
     """
     project_root = Path.cwd()
-    audio_root = project_root / AUDIO_ROOT_2022
+    audio_root = project_root / "data" / "UrBAN" / "data" / "audio" / "beehives_2022"
 
     wavs_2022 = discover_wav_files(audio_root)
     print(f"[Attach Labels 2022] Discovered {len(wavs_2022)} wavs in 2022 audio folder")
@@ -80,7 +77,7 @@ def attach_inspection_labels_2022() -> pd.DataFrame:
     print("\nDays since inspection (describe):")
     print(labeled["days_since_inspection"].describe())
 
-    return pd.DataFrame
+    return labeled
 
 
 def attach_inspection_labels_2021() -> pd.DataFrame:
@@ -91,7 +88,7 @@ def attach_inspection_labels_2021() -> pd.DataFrame:
     attach annotations to audio chunks
     """
     project_root = Path.cwd()
-    audio_root = project_root / AUDIO_ROOT_2021
+    audio_root = project_root / "data" / "UrBAN" / "data" / "audio" / "beehives_2021"
 
     wavs_2021 = discover_wav_files(audio_root)
     print(f"[Attach Labels 2021] Discovered {len(wavs_2021)} wavs in 2021 audio folder")
