@@ -303,3 +303,7 @@ def calculate_embeddings() -> None:
             split_output_dir=split_output_dir,
             embedder=embedder,
         )
+
+
+if __name__ == "__main__":
+    calculate_embeddings()

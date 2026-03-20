@@ -192,3 +192,7 @@ def create_queen_splits() -> None:
     print(splits_dir / "queen_train.parquet")
     print(splits_dir / "queen_val.parquet")
     print(splits_dir / "queen_test.parquet")
+
+
+if __name__ == "__main__":
+    create_queen_splits()
