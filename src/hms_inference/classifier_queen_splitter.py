@@ -6,7 +6,6 @@ from itertools import combinations
 import pandas as pd
 
 RANDOM_SEED = 42
-
 QUEEN_TASK_COLUMNS = [
     "dataset_year",
     "wav_path",
@@ -24,8 +23,8 @@ QUEEN_TASK_COLUMNS = [
 
 
 def load_labeled_chunks(processed_dir: Path) -> pd.DataFrame:
-    df_2021 = pd.read_parquet(processed_dir / "urban_chunks_2021_labeled.parquet")
-    df_2022 = pd.read_parquet(processed_dir / "urban_chunks_2022_labeled.parquet")
+    df_2021 = pd.read_parquet(processed_dir / "urban_labeled_data_2021.parquet")
+    df_2022 = pd.read_parquet(processed_dir / "urban_labeled_data_2022.parquet")
 
     df = pd.concat([df_2021, df_2022], ignore_index=True)
     return df
@@ -155,7 +154,7 @@ def print_dataframe_summary(name: str, df: pd.DataFrame) -> None:
     print(df["queen_present"].value_counts(dropna=False))
 
 
-def main() -> None:
+def create_queen_splits() -> None:
     project_root = Path.cwd()
     processed_dir = project_root / "data" / "processed"
     splits_dir = project_root / "data" / "splits"
@@ -193,7 +192,3 @@ def main() -> None:
     print(splits_dir / "queen_train.parquet")
     print(splits_dir / "queen_val.parquet")
     print(splits_dir / "queen_test.parquet")
-
-
-if __name__ == "__main__":
-    main()
