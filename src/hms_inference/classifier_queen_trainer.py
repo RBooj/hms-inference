@@ -8,7 +8,7 @@ from typing import Iterator
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -26,17 +26,46 @@ WEIGHT_DECAY = 1e-4
 MAX_EPOCHS = 20
 PATIENCE = 4
 
+NEGATIVE_CLASS_WEIGHT = 5.0
+POSITIVE_CLASS_WEIGHT = 1.0
+DEFAULT_THRESHOLD = 0.5
+
+
 class QueenClassifier(nn.Module):
     def __init__(self, input_dim: int = INPUT_DIM, hidden_dim: int = HIDDEN_DIM, dropout: float = DROPOUT):
         super().__init__()
         self.net = nn.Sequential(
                 nn.Linear(input_dim, hidden_dim),
                 nn.ReLU(),
-                nn.Dropout(dropout)
+                nn.Dropout(dropout),
                 nn.Linear(hidden_dim, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x).squeeze(-1)
+
+def weighted_bce_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    negative_weight: float = NEGATIVE_CLASS_WEIGHT,
+    positive_weight: float = POSITIVE_CLASS_WEIGHT,
+) -> torch.Tensor:
+    """
+    Apply larger weight to negative-class examples (label 0)
+    to penalize false positives more strongly.
+    """
+    base_loss = nn.functional.binary_cross_entropy_with_logits(
+        logits,
+        targets,
+        reduction="none",
+    )
+
+    sample_weights = torch.where(
+        targets == 0,
+        torch.full_like(targets, negative_weight),
+        torch.full_like(targets, positive_weight),
+    )
+
+    return (base_loss * sample_weights).mean()
 
 def list_shard_prefixes(split_dir: Path) -> list[Path]:
     meta_files = sorted(split_dir.glob("part_*_meta.parquet"))
@@ -63,10 +92,67 @@ def load_shard(prefix: Path) -> tuple[np.ndarray, np.ndarray]:
     return X.astype(np.float32), y.astype(np.float32)
 
 
-def make_loader(X: np.ndarray, y: np.ndarray, batch_size: int, shuffle: bool) -> DataLoader:
+def compute_classification_metrics(
+    preds: np.ndarray,
+    targets: np.ndarray,
+) -> dict:
+    accuracy = float((preds == targets).mean())
+
+    tp = int(((preds == 1) & (targets == 1)).sum())
+    tn = int(((preds == 0) & (targets == 0)).sum())
+    fp = int(((preds == 1) & (targets == 0)).sum())
+    fn = int(((preds == 0) & (targets == 1)).sum())
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    balanced_accuracy = 0.5 * (recall + specificity)
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "specificity": specificity,
+        "balanced_accuracy": balanced_accuracy,
+        "f1": f1,
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
+    }
+
+
+def make_loader(
+    X: np.ndarray,
+    y: np.ndarray,
+    batch_size: int,
+    shuffle: bool,
+    balanced: bool = False,
+) -> DataLoader:
     x_tensor = torch.from_numpy(X)
     y_tensor = torch.from_numpy(y)
     ds = TensorDataset(x_tensor, y_tensor)
+
+    if balanced:
+        # Count class frequencies in this shard
+        class_counts = np.bincount(y.astype(np.int64), minlength=2)
+
+        if class_counts[0] == 0 or class_counts[1] == 0:
+            # Fall back if a shard contains only one class
+            return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, drop_last=False)
+
+        # Weight each sample inversely to class frequency
+        sample_weights = np.where(y == 1, 1.0 / class_counts[1], 1.0 / class_counts[0])
+        sample_weights = torch.as_tensor(sample_weights, dtype=torch.float32)
+
+        sampler = WeightedRandomSampler(
+            weights=sample_weights,
+            num_samples=len(sample_weights),
+            replacement=True,
+        )
+        return DataLoader(ds, batch_size=batch_size, sampler=sampler, drop_last=False)
+
     return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, drop_last=False)
 
 
@@ -96,7 +182,7 @@ def compute_pos_weight(train_dir: Path) -> torch.Tensor:
 def evaluate_model(
     model: nn.Module,
     val_loader: DataLoader,
-    criterion: nn.Module,
+    threshold: float = DEFAULT_THRESHOLD,
 ) -> dict:
     model.eval()
 
@@ -104,7 +190,6 @@ def evaluate_model(
     total_count = 0
 
     all_probs = []
-    all_preds = []
     all_targets = []
 
     for xb, yb in val_loader:
@@ -112,47 +197,25 @@ def evaluate_model(
         yb = yb.to(DEVICE, non_blocking=True)
 
         logits = model(xb)
-        loss = criterion(logits, yb)
+        loss = weighted_bce_loss(logits, yb)
 
         probs = torch.sigmoid(logits)
-        preds = (probs >= 0.5).float()
 
         batch_size = xb.size(0)
         total_loss += float(loss.item()) * batch_size
         total_count += batch_size
 
         all_probs.append(probs.detach().cpu())
-        all_preds.append(preds.detach().cpu())
         all_targets.append(yb.detach().cpu())
 
     probs = torch.cat(all_probs).numpy()
-    preds = torch.cat(all_preds).numpy()
     targets = torch.cat(all_targets).numpy()
-
-    accuracy = float((preds == targets).mean())
-
-    tp = int(((preds == 1) & (targets == 1)).sum())
-    tn = int(((preds == 0) & (targets == 0)).sum())
-    fp = int(((preds == 1) & (targets == 0)).sum())
-    fn = int(((preds == 0) & (targets == 1)).sum())
-
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    preds = (probs >= threshold).astype(np.float32)
 
     avg_loss = total_loss / total_count if total_count > 0 else math.nan
-
-    return {
-        "loss": avg_loss,
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "tp": tp,
-        "tn": tn,
-        "fp": fp,
-        "fn": fn,
-    }
+    metrics = compute_classification_metrics(preds, targets)
+    metrics["loss"] = avg_loss
+    return metrics
 
 
 def load_full_split(split_dir: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -176,7 +239,6 @@ def train_one_epoch(
     model: nn.Module,
     train_dir: Path,
     optimizer: torch.optim.Optimizer,
-    criterion: nn.Module,
 ) -> float:
     model.train()
 
@@ -189,7 +251,7 @@ def train_one_epoch(
 
     for shard_idx, prefix in enumerate(shard_prefixes, start=1):
         X, y = load_shard(prefix)
-        train_loader = make_loader(X, y, batch_size=BATCH_SIZE, shuffle=True)
+        train_loader = make_loader(X, y, batch_size=BATCH_SIZE, shuffle=False, balanced=True)
 
         for xb, yb in train_loader:
             xb = xb.to(DEVICE, non_blocking=True)
@@ -198,7 +260,7 @@ def train_one_epoch(
             optimizer.zero_grad(set_to_none=True)
 
             logits = model(xb)
-            loss = criterion(logits, yb)
+            loss = weighted_bce_loss(logits, yb)
 
             loss.backward()
             optimizer.step()
@@ -210,6 +272,58 @@ def train_one_epoch(
         print(f"[Train] Finished shard {shard_idx}/{len(shard_prefixes)}: {prefix.name}")
 
     return total_loss / total_count if total_count > 0 else math.nan
+
+@torch.no_grad()
+def predict_probabilities(
+    model: nn.Module,
+    loader: DataLoader,
+) -> tuple[np.ndarray, np.ndarray]:
+    model.eval()
+
+    all_probs = []
+    all_targets = []
+
+    for xb, yb in loader:
+        xb = xb.to(DEVICE, non_blocking=True)
+        logits = model(xb)
+        probs = torch.sigmoid(logits)
+
+        all_probs.append(probs.detach().cpu())
+        all_targets.append(yb.detach().cpu())
+
+    probs = torch.cat(all_probs).numpy()
+    targets = torch.cat(all_targets).numpy()
+    return probs, targets
+
+
+def metrics_at_threshold(
+    probs: np.ndarray,
+    targets: np.ndarray,
+    threshold: float,
+) -> dict:
+    preds = (probs >= threshold).astype(np.float32)
+    metrics = compute_classification_metrics(preds, targets)
+    metrics["threshold"] = threshold
+    return metrics
+
+
+
+
+def scan_thresholds(
+    probs: np.ndarray,
+    targets: np.ndarray,
+    thresholds: list[float],
+) -> list[dict]:
+    results = []
+    for threshold in thresholds:
+        results.append(metrics_at_threshold(probs, targets, threshold))
+    return results
+
+
+def choose_best_threshold_by_balanced_accuracy(results: list[dict]) -> dict:
+    if not results:
+        raise ValueError("No threshold results to choose from.")
+    return max(results, key=lambda r: r["balanced_accuracy"])
 
 
 def main() -> None:
@@ -236,19 +350,14 @@ def main() -> None:
     test_loader = make_loader(X_test, y_test, batch_size=BATCH_SIZE, shuffle=False)
     print(f"[Train] Test rows: {len(y_test)}")
 
-    print("[Train] Computing class weight from training shards...")
-    pos_weight = compute_pos_weight(train_dir)
-    print(f"[Train] pos_weight: {float(pos_weight.item()):.4f}")
-
     model = QueenClassifier().to(DEVICE)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=LEARNING_RATE,
         weight_decay=WEIGHT_DECAY,
     )
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-    best_val_f1 = -1.0
+    best_val_bal_acc = -1.0
     best_epoch = -1
     epochs_without_improvement = 0
 
@@ -264,13 +373,11 @@ def main() -> None:
             model=model,
             train_dir=train_dir,
             optimizer=optimizer,
-            criterion=criterion,
         )
 
         val_metrics = evaluate_model(
             model=model,
             val_loader=val_loader,
-            criterion=criterion,
         )
 
         epoch_record = {
@@ -288,13 +395,15 @@ def main() -> None:
             f"[Train] train_loss={train_loss:.4f} | "
             f"val_loss={val_metrics['loss']:.4f} | "
             f"val_acc={val_metrics['accuracy']:.4f} | "
+            f"val_bal_acc={val_metrics['balanced_accuracy']:.4f} | "
             f"val_f1={val_metrics['f1']:.4f} | "
             f"val_precision={val_metrics['precision']:.4f} | "
-            f"val_recall={val_metrics['recall']:.4f}"
+            f"val_recall={val_metrics['recall']:.4f} | "
+            f"val_specificity={val_metrics['specificity']:.4f}"
         )
 
-        if val_metrics["f1"] > best_val_f1:
-            best_val_f1 = val_metrics["f1"]
+        if val_metrics["balanced_accuracy"] > best_val_bal_acc:
+            best_val_bal_acc = val_metrics["balanced_accuracy"]
             best_epoch = epoch
             epochs_without_improvement = 0
 
@@ -302,7 +411,7 @@ def main() -> None:
                 {
                     "model_state_dict": model.state_dict(),
                     "epoch": epoch,
-                    "val_f1": best_val_f1,
+                    "val_balanced_accuracy": best_val_bal_acc,
                     "config": {
                         "input_dim": INPUT_DIM,
                         "hidden_dim": HIDDEN_DIM,
@@ -323,20 +432,55 @@ def main() -> None:
             print(f"[Train] Early stopping triggered after {PATIENCE} epochs without improvement.")
             break
 
-    print(f"\n[Train] Best epoch: {best_epoch}, best val_f1: {best_val_f1:.4f}")
+    print(f"\n[Train] Best epoch: {best_epoch}, best val_bal_acc: {best_val_bal_acc:.4f}")
 
     print("[Train] Loading best model for final test evaluation...")
     checkpoint = torch.load(best_model_path, map_location=DEVICE)
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    test_metrics = evaluate_model(
-        model=model,
-        val_loader=test_loader,
-        criterion=criterion,
+    print("[Train] Collecting validation probabilities for threshold tuning...")
+    val_probs, val_targets = predict_probabilities(model, val_loader)
+
+    thresholds = [round(x, 2) for x in np.arange(0.10, 0.96, 0.05)]
+    val_threshold_results = scan_thresholds(val_probs, val_targets, thresholds)
+
+    print("\n[Validation threshold scan]")
+    for r in val_threshold_results:
+        print(
+            f"thr={r['threshold']:.2f} | "
+            f"acc={r['accuracy']:.4f} | "
+            f"bal_acc={r['balanced_accuracy']:.4f} | "
+            f"f1={r['f1']:.4f} | "
+            f"precision={r['precision']:.4f} | "
+            f"recall={r['recall']:.4f} | "
+            f"specificity={r['specificity']:.4f} | "
+            f"TP={r['tp']} TN={r['tn']} FP={r['fp']} FN={r['fn']}"
+        )
+
+    best_threshold_result = choose_best_threshold_by_balanced_accuracy(val_threshold_results)
+    best_threshold = best_threshold_result["threshold"]
+
+    print(
+        f"\n[Train] Best validation threshold by balanced accuracy: {best_threshold:.2f} | "
+        f"bal_acc={best_threshold_result['balanced_accuracy']:.4f} | "
+        f"f1={best_threshold_result['f1']:.4f} | "
+        f"precision={best_threshold_result['precision']:.4f} | "
+        f"recall={best_threshold_result['recall']:.4f} | "
+        f"specificity={best_threshold_result['specificity']:.4f}"
+    )
+
+
+    print("[Train] Collecting test probabilities...")
+    test_probs, test_targets = predict_probabilities(model, test_loader)
+
+    test_metrics = metrics_at_threshold(
+        test_probs,
+        test_targets,
+        threshold=best_threshold,
     )
 
     print(
-        f"[Test] loss={test_metrics['loss']:.4f} | "
+        f"[Test @ threshold={best_threshold:.2f}] "
         f"acc={test_metrics['accuracy']:.4f} | "
         f"f1={test_metrics['f1']:.4f} | "
         f"precision={test_metrics['precision']:.4f} | "
@@ -350,10 +494,13 @@ def main() -> None:
 
     metrics_payload = {
         "best_epoch": best_epoch,
-        "best_val_f1": best_val_f1,
+        "val_balanced_accuracy": best_val_bal_acc,
+        "selected_threshold": best_threshold,
+        "validation_threshold_results": val_threshold_results,
         "history": history,
         "test_metrics": test_metrics,
     }
+
 
     with metrics_path.open("w", encoding="utf-8") as f:
         json.dump(metrics_payload, f, indent=2)
