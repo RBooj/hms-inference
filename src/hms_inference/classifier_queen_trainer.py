@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterator
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
@@ -17,18 +18,22 @@ MODELS_ROOT = Path.cwd() / "data" / "models"
 MODELS_ROOT.mkdir(parents=True, exist_ok=True)
 
 INPUT_DIM = 768
-HIDDEN_DIM = 128
-DROPOUT = 0.2
+HIDDEN_DIM = 512
+DROPOUT = 0.1
 
 BATCH_SIZE = 512
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
-MAX_EPOCHS = 20
-PATIENCE = 4
+MAX_EPOCHS = 25
+PATIENCE = 5
 
-NEGATIVE_CLASS_WEIGHT = 5.0
+NEGATIVE_CLASS_WEIGHT = 10.0
 POSITIVE_CLASS_WEIGHT = 1.0
 DEFAULT_THRESHOLD = 0.5
+
+RECENCY_TAU_DAYS = 7.0
+MIN_RECENCY_WEIGHT = 0.25
+USE_RECENCY_WEIGHTING = True
 
 
 class QueenClassifier(nn.Module):
@@ -36,36 +41,54 @@ class QueenClassifier(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
                 nn.Linear(input_dim, hidden_dim),
-                nn.ReLU(),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
                 nn.Dropout(dropout),
-                nn.Linear(hidden_dim, 1))
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.LayerNorm(hidden_dim // 2),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim // 2, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x).squeeze(-1)
 
+def compute_recency_weights(
+    days_since: torch.Tensor,
+    tau_days: float = RECENCY_TAU_DAYS,
+    min_weight: float = MIN_RECENCY_WEIGHT,
+) -> torch.Tensor:
+    weights = torch.exp(-days_since / tau_days)
+    weights = torch.clamp(weights, min=min_weight, max=1.0)
+    return weights
+
 def weighted_bce_loss(
     logits: torch.Tensor,
     targets: torch.Tensor,
-    negative_weight: float = NEGATIVE_CLASS_WEIGHT,
-    positive_weight: float = POSITIVE_CLASS_WEIGHT,
+    days_since: torch.Tensor,
+    negative_weight: float,
+    positive_weight: float,
+    use_recency_weighting: bool = USE_RECENCY_WEIGHTING,
 ) -> torch.Tensor:
-    """
-    Apply larger weight to negative-class examples (label 0)
-    to penalize false positives more strongly.
-    """
     base_loss = nn.functional.binary_cross_entropy_with_logits(
         logits,
         targets,
         reduction="none",
     )
 
-    sample_weights = torch.where(
+    class_weights = torch.where(
         targets == 0,
         torch.full_like(targets, negative_weight),
         torch.full_like(targets, positive_weight),
     )
 
-    return (base_loss * sample_weights).mean()
+    if use_recency_weighting:
+        recency_weights = compute_recency_weights(days_since)
+    else:
+        recency_weights = torch.ones_like(targets)
+
+    total_weights = class_weights * recency_weights
+    return (base_loss * total_weights).mean()
 
 def list_shard_prefixes(split_dir: Path) -> list[Path]:
     meta_files = sorted(split_dir.glob("part_*_meta.parquet"))
@@ -75,12 +98,14 @@ def list_shard_prefixes(split_dir: Path) -> list[Path]:
         prefixes.append(split_dir / prefix_str)
     return prefixes
 
-def load_shard(prefix: Path) -> tuple[np.ndarray, np.ndarray]:
+def load_shard(prefix: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     x_path = prefix.parent / f"{prefix.name}_embeddings.npy"
     y_path = prefix.parent / f"{prefix.name}_labels.npy"
+    meta_path = prefix.parent / f"{prefix.name}_meta.parquet"
 
     X = np.load(x_path)
     y = np.load(y_path)
+    meta_df = pd.read_parquet(meta_path)
 
     if X.ndim != 2:
         raise ValueError(f"Expected 2D embedding array in {x_path}, got shape {X.shape}")
@@ -88,9 +113,17 @@ def load_shard(prefix: Path) -> tuple[np.ndarray, np.ndarray]:
         raise ValueError(f"Expected 1D label array in {y_path}, got shape {y.shape}")
     if len(X) != len(y):
         raise ValueError(f"Shard size mismatch: {x_path} has {len(X)} rows, {y_path} has {len(y)} rows")
+    if len(meta_df) != len(y):
+        raise ValueError(
+            f"Shard size mismatch: {meta_path} has {len(meta_df)} rows, {y_path} has {len(y)} rows"
+        )
 
-    return X.astype(np.float32), y.astype(np.float32)
+    if "days_since_inspection" not in meta_df.columns:
+        raise ValueError(f"{meta_path} is missing 'days_since_inspection'")
 
+    days_since = meta_df["days_since_inspection"].to_numpy(dtype=np.float32)
+
+    return X.astype(np.float32), y.astype(np.float32), days_since
 
 def compute_classification_metrics(
     preds: np.ndarray,
@@ -122,27 +155,25 @@ def compute_classification_metrics(
         "fn": fn,
     }
 
-
 def make_loader(
     X: np.ndarray,
     y: np.ndarray,
+    days_since: np.ndarray,
     batch_size: int,
     shuffle: bool,
     balanced: bool = False,
 ) -> DataLoader:
     x_tensor = torch.from_numpy(X)
     y_tensor = torch.from_numpy(y)
-    ds = TensorDataset(x_tensor, y_tensor)
+    d_tensor = torch.from_numpy(days_since)
+    ds = TensorDataset(x_tensor, y_tensor, d_tensor)
 
     if balanced:
-        # Count class frequencies in this shard
         class_counts = np.bincount(y.astype(np.int64), minlength=2)
 
         if class_counts[0] == 0 or class_counts[1] == 0:
-            # Fall back if a shard contains only one class
             return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, drop_last=False)
 
-        # Weight each sample inversely to class frequency
         sample_weights = np.where(y == 1, 1.0 / class_counts[1], 1.0 / class_counts[0])
         sample_weights = torch.as_tensor(sample_weights, dtype=torch.float32)
 
@@ -155,33 +186,12 @@ def make_loader(
 
     return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, drop_last=False)
 
-
-def compute_pos_weight(train_dir: Path) -> torch.Tensor:
-    total_pos = 0
-    total_neg = 0
-
-    for prefix in list_shard_prefixes(train_dir):
-        _, y = load_shard(prefix)
-        pos = int((y == 1).sum())
-        neg = int((y == 0).sum())
-        total_pos += pos
-        total_neg += neg
-
-    if total_pos == 0:
-        raise ValueError("No positive samples found in training set.")
-    if total_neg == 0:
-        raise ValueError("No negative samples found in training set.")
-
-    # BCEWithLogitsLoss pos_weight > 1 increases weight on positives.
-    # Here positives are queen_present=True (label 1).
-    pos_weight = total_neg / total_pos
-    return torch.tensor(pos_weight, dtype=torch.float32, device=DEVICE)
-
-
 @torch.no_grad()
 def evaluate_model(
     model: nn.Module,
     val_loader: DataLoader,
+    negative_weight: float,
+    positive_weight: float,
     threshold: float = DEFAULT_THRESHOLD,
 ) -> dict:
     model.eval()
@@ -192,12 +202,19 @@ def evaluate_model(
     all_probs = []
     all_targets = []
 
-    for xb, yb in val_loader:
+    for xb, yb, db in val_loader:
         xb = xb.to(DEVICE, non_blocking=True)
         yb = yb.to(DEVICE, non_blocking=True)
+        db = db.to(DEVICE, non_blocking=True)
 
         logits = model(xb)
-        loss = weighted_bce_loss(logits, yb)
+        loss = weighted_bce_loss(
+            logits,
+            yb,
+            db,
+            negative_weight=negative_weight,
+            positive_weight=positive_weight,
+        )
 
         probs = torch.sigmoid(logits)
 
@@ -217,28 +234,31 @@ def evaluate_model(
     metrics["loss"] = avg_loss
     return metrics
 
-
-def load_full_split(split_dir: Path) -> tuple[np.ndarray, np.ndarray]:
+def load_full_split(split_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     all_x = []
     all_y = []
+    all_days = []
 
     for prefix in list_shard_prefixes(split_dir):
-        X, y = load_shard(prefix)
+        X, y, days_since = load_shard(prefix)
         all_x.append(X)
         all_y.append(y)
+        all_days.append(days_since)
 
     if not all_x:
         raise ValueError(f"No shards found in {split_dir}")
 
     X = np.concatenate(all_x, axis=0).astype(np.float32)
     y = np.concatenate(all_y, axis=0).astype(np.float32)
-    return X, y
-
+    days_since = np.concatenate(all_days, axis=0).astype(np.float32)
+    return X, y, days_since
 
 def train_one_epoch(
     model: nn.Module,
     train_dir: Path,
     optimizer: torch.optim.Optimizer,
+    negative_weight: float,
+    positive_weight: float,
 ) -> float:
     model.train()
 
@@ -250,17 +270,31 @@ def train_one_epoch(
         raise ValueError(f"No training shards found in {train_dir}")
 
     for shard_idx, prefix in enumerate(shard_prefixes, start=1):
-        X, y = load_shard(prefix)
-        train_loader = make_loader(X, y, batch_size=BATCH_SIZE, shuffle=False, balanced=True)
+        X, y, days_since = load_shard(prefix)
+        train_loader = make_loader(
+            X,
+            y,
+            days_since,
+            batch_size=BATCH_SIZE,
+            shuffle=False,
+            balanced=True,
+        )
 
-        for xb, yb in train_loader:
+        for xb, yb, db in train_loader:
             xb = xb.to(DEVICE, non_blocking=True)
             yb = yb.to(DEVICE, non_blocking=True)
+            db = db.to(DEVICE, non_blocking=True)
 
             optimizer.zero_grad(set_to_none=True)
 
             logits = model(xb)
-            loss = weighted_bce_loss(logits, yb)
+            loss = weighted_bce_loss(
+                logits,
+                yb,
+                db,
+                negative_weight=negative_weight,
+                positive_weight=positive_weight,
+            )
 
             loss.backward()
             optimizer.step()
@@ -283,7 +317,7 @@ def predict_probabilities(
     all_probs = []
     all_targets = []
 
-    for xb, yb in loader:
+    for xb, yb, _ in loader:
         xb = xb.to(DEVICE, non_blocking=True)
         logits = model(xb)
         probs = torch.sigmoid(logits)
@@ -325,6 +359,31 @@ def choose_best_threshold_by_balanced_accuracy(results: list[dict]) -> dict:
         raise ValueError("No threshold results to choose from.")
     return max(results, key=lambda r: r["balanced_accuracy"])
 
+def compute_class_weights(train_dir: Path) -> dict[str, float]:
+    total_pos = 0
+    total_neg = 0
+
+    for prefix in list_shard_prefixes(train_dir):
+        _, y, _ = load_shard(prefix)
+        total_pos += int((y == 1).sum())
+        total_neg += int((y == 0).sum())
+
+    if total_pos == 0:
+        raise ValueError("No positive samples found in training set.")
+    if total_neg == 0:
+        raise ValueError("No negative samples found in training set.")
+
+    total = total_pos + total_neg
+    positive_weight = total / (2.0 * total_pos)
+    negative_weight = total / (2.0 * total_neg)
+
+    return {
+        "positive_count": total_pos,
+        "negative_count": total_neg,
+        "positive_weight": positive_weight,
+        "negative_weight": negative_weight,
+    }
+
 
 def main() -> None:
     train_dir = EMBEDDINGS_ROOT / "queen_train"
@@ -338,16 +397,35 @@ def main() -> None:
     if not test_dir.exists():
         raise FileNotFoundError(f"Test embedding dir not found: {test_dir}")
 
+    class_stats = compute_class_weights(train_dir)
+    negative_weight = class_stats["negative_weight"]
+    positive_weight = class_stats["positive_weight"]
+
+    print(
+            "[Train] Class balance: "
+            f"neg={class_stats['negative_count']} "
+            f"pos={class_stats['positive_count']} | "
+            f"negative_weight={negative_weight:.4f} "
+            f"positive_weight={positive_weight:.4f}"
+            )
+
+    print(
+            "[Train] Recency weighting: "
+            f"enabled={USE_RECENCY_WEIGHTING} | "
+            f"tau_days={RECENCY_TAU_DAYS:.2f} | "
+            f"min_weight={MIN_RECENCY_WEIGHT:.2f}"
+            )
+
     print(f"[Train] Device: {DEVICE}")
 
     print("[Train] Loading validation embeddings...")
-    X_val, y_val = load_full_split(val_dir)
-    val_loader = make_loader(X_val, y_val, batch_size=BATCH_SIZE, shuffle=False)
+    X_val, y_val, d_val = load_full_split(val_dir)
+    val_loader = make_loader(X_val, y_val, d_val, batch_size=BATCH_SIZE, shuffle=False, balanced=False)
     print(f"[Train] Validation rows: {len(y_val)}")
 
     print("[Train] Loading test embeddings...")
-    X_test, y_test = load_full_split(test_dir)
-    test_loader = make_loader(X_test, y_test, batch_size=BATCH_SIZE, shuffle=False)
+    X_test, y_test, d_test = load_full_split(test_dir)
+    test_loader = make_loader(X_test, y_test, d_test, batch_size=BATCH_SIZE, shuffle=False, balanced=False)
     print(f"[Train] Test rows: {len(y_test)}")
 
     model = QueenClassifier().to(DEVICE)
@@ -373,11 +451,15 @@ def main() -> None:
             model=model,
             train_dir=train_dir,
             optimizer=optimizer,
+            negative_weight=negative_weight,
+            positive_weight=positive_weight,
         )
 
         val_metrics = evaluate_model(
             model=model,
             val_loader=val_loader,
+            negative_weight=negative_weight,
+            positive_weight=positive_weight,
         )
 
         epoch_record = {
