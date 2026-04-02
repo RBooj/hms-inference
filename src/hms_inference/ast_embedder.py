@@ -77,7 +77,12 @@ class ASTEmbedder:
                 )
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-        out = self.model(**inputs)
+        with torch.autocast(
+                device_type="cuda",
+                dtype=torch.float16,
+                enabled=self.device.type == "cuda",
+                ):
+            out = self.model(**inputs)
 
         # choose one embedding definition and keep it fixed
         emb = out.last_hidden_state[:, 0, :]   # [batch, hidden_dim]

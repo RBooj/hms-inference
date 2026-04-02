@@ -8,7 +8,7 @@ from hms_inference.inspections_loader import (
 )
 from hms_inference.audio_loader import discover_wav_files, build_chunk_df
 
-MAX_GAP_DAYS = 7  # Be > 0
+MAX_GAP_DAYS = 28  # Be > 0
 
 
 def attach_inspection_labels_2022() -> pd.DataFrame:

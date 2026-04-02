@@ -14,7 +14,7 @@ SPLITS = ["queen_val", "queen_test", "queen_train"]
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MAX_CONSECUTIVE_FILES = 500
 MAX_ROWS_PER_SHARD = 100000
-EMBED_BATCH_SIZE = 32
+EMBED_BATCH_SIZE = 180
 
 
 def slice_waveform_chunk(
@@ -269,8 +269,8 @@ def process_split(
             del batch_waveforms
             del batch_rows
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # if torch.cuda.is_available():
+            #     torch.cuda.empty_cache()
 
         # Free per-wav chunk buffers before moving on
         del chunk_waveforms

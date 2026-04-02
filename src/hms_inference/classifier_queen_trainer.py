@@ -22,18 +22,16 @@ HIDDEN_DIM = 512
 DROPOUT = 0.1
 
 BATCH_SIZE = 512
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 1e-2
 WEIGHT_DECAY = 1e-4
 MAX_EPOCHS = 25
 PATIENCE = 5
 
-NEGATIVE_CLASS_WEIGHT = 10.0
-POSITIVE_CLASS_WEIGHT = 1.0
 DEFAULT_THRESHOLD = 0.5
 
 RECENCY_TAU_DAYS = 7.0
 MIN_RECENCY_WEIGHT = 0.25
-USE_RECENCY_WEIGHTING = True
+USE_RECENCY_WEIGHTING = False
 
 
 class QueenClassifier(nn.Module):
@@ -232,6 +230,11 @@ def evaluate_model(
     avg_loss = total_loss / total_count if total_count > 0 else math.nan
     metrics = compute_classification_metrics(preds, targets)
     metrics["loss"] = avg_loss
+
+    metrics["prob_mean"] = float(probs.mean())
+    metrics["prob_std"] = float(probs.std())
+    metrics["pred_pos_rate"] = float(preds.mean())
+
     return metrics
 
 def load_full_split(split_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -447,6 +450,8 @@ def main() -> None:
     for epoch in range(1, MAX_EPOCHS + 1):
         print(f"\n[Train] Epoch {epoch}/{MAX_EPOCHS}")
 
+        first_weight_before = model.net[0].weight.detach().clone()
+
         train_loss = train_one_epoch(
             model=model,
             train_dir=train_dir,
@@ -454,6 +459,10 @@ def main() -> None:
             negative_weight=negative_weight,
             positive_weight=positive_weight,
         )
+
+        first_weight_after = model.net[0].weight.detach()
+        weight_delta = float((first_weight_after - first_weight_before).abs().mean().item())
+        print(f"[Train] mean abs delta first layer weights = {weight_delta:.8f}")
 
         val_metrics = evaluate_model(
             model=model,
@@ -481,7 +490,10 @@ def main() -> None:
             f"val_f1={val_metrics['f1']:.4f} | "
             f"val_precision={val_metrics['precision']:.4f} | "
             f"val_recall={val_metrics['recall']:.4f} | "
-            f"val_specificity={val_metrics['specificity']:.4f}"
+            f"val_specificity={val_metrics['specificity']:.4f} | "
+            f"prob_mean={val_metrics['prob_mean']:.4f} | "
+            f"prob_std={val_metrics['prob_std']:.4f} | "
+            f"pred_pos_rate={val_metrics['pred_pos_rate']:.4f}"
         )
 
         if val_metrics["balanced_accuracy"] > best_val_bal_acc:
