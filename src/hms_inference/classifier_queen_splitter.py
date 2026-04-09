@@ -21,6 +21,8 @@ QUEEN_TASK_COLUMNS = [
     "queen_present",
 ]
 
+SUBSAMPLE_FRACTION = 0.05
+
 
 def load_labeled_chunks(processed_dir: Path) -> pd.DataFrame:
     df_2021 = pd.read_parquet(processed_dir / "urban_labeled_data_2021.parquet")
@@ -179,6 +181,13 @@ def create_queen_splits() -> None:
     queen_train = filter_by_hives(queen_df, train_stats["hives"])
     queen_val = filter_by_hives(queen_df, val_stats["hives"])
     queen_test = filter_by_hives(queen_df, test_stats["hives"])
+
+    # Subsampling for training dataset (finetuning takes too long without this)
+    if SUBSAMPLE_FRACTION < 1.0:
+        original_len = len(queen_train)
+        queen_train = queen_train.sample(frac=SUBSAMPLE_FRACTION, random_state=42,).reset_index(drop=True)
+        print(f"[Subsample] train: {original_len} -> {len(queen_train)} "
+              f"({SUBSAMPLE_FRACTION*100:.1f}%)")
 
     queen_train.to_parquet(splits_dir / "queen_train.parquet", index=False)
     queen_val.to_parquet(splits_dir / "queen_val.parquet", index=False)
