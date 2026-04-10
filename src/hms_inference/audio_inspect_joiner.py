@@ -1,6 +1,5 @@
 from __future__ import annotations
 import pandas as pd
-from pathlib import Path
 
 from hms_inference.inspections_loader import (
     load_inspections_2021,

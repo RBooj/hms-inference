@@ -1,6 +1,7 @@
 from __future__ import annotations
 import pandas as pd
 import re
+from tqdm import tqdm
 
 from torchcodec.decoders import AudioDecoder
 from pathlib import Path
@@ -52,7 +53,7 @@ def build_chunk_df(
     """
     rows = []
 
-    for wav_path in wav_paths:
+    for wav_path in tqdm(wav_paths, desc="Loading and slicing wavs"):
         wav_meta = parse_urban_wav_name(wav_path)
         wav_chunks = chunk_audio_duration(wav_path, chunk_length_s, hop_length_s)
 
