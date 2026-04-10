@@ -155,8 +155,8 @@ def print_dataframe_summary(name: str, df: pd.DataFrame) -> None:
 
 
 def create_queen_splits(cfg: QueenPipelineConfig) -> None:
-    processed_dir = cfg.paths.processed_dir
-    splits_dir = cfg.paths.splits_dir
+    processed_dir = cfg.paths.processed_dir / cfg.project.name
+    splits_dir = cfg.paths.splits_dir / cfg.project.name
     splits_dir.mkdir(parents=True, exist_ok=True)
 
     print("[Queen Split] Loading labeled chunk parquet files...")

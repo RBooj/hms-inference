@@ -148,17 +148,17 @@ def build_loaders(
     cfg: QueenPipelineConfig,
 ) -> tuple[DataLoader, DataLoader, DataLoader, QueenAudioDataset]:
     train_ds = QueenAudioDataset(
-        cfg.paths.splits_dir / "queen_train.parquet",
+        cfg.paths.splits_dir / cfg.project.name / "queen_train.parquet",
         cache_waveforms=cfg.audio.cache_waveforms,
         target_sample_rate=cfg.audio.target_sample_rate,
     )
     val_ds = QueenAudioDataset(
-        cfg.paths.splits_dir / "queen_val.parquet",
+        cfg.paths.splits_dir / cfg.project.name / "queen_val.parquet",
         cache_waveforms=cfg.audio.cache_waveforms,
         target_sample_rate=cfg.audio.target_sample_rate,
     )
     test_ds = QueenAudioDataset(
-        cfg.paths.splits_dir / "queen_test.parquet",
+        cfg.paths.splits_dir / cfg.project.name / "queen_test.parquet",
         cache_waveforms=cfg.audio.cache_waveforms,
         target_sample_rate=cfg.audio.target_sample_rate,
     )

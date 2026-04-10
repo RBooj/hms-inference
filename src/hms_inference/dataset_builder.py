@@ -16,7 +16,7 @@ def ensure_processed_dir(project_root: Path) -> Path:
 
 
 def build_dataset(cfg: QueenPipelineConfig) -> None:
-    processed_dir = cfg.paths.processed_dir
+    processed_dir = cfg.paths.processed_dir / cfg.project.name
     processed_dir.mkdir(parents=True, exist_ok=True)
 
     print("[Build Dataset] Labeling 2021 Data:")
