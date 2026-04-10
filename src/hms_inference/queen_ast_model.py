@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-from transformers import ASTFeatureExtractor, ASTModel, AutoFeatureExtractor, ASTForAudioClassification
+from transformers import (
+    ASTFeatureExtractor,
+    ASTModel,
+    AutoFeatureExtractor,
+    ASTForAudioClassification,
+)
 
 
 class ASTQueenClassifier(nn.Module):
@@ -18,12 +23,15 @@ class ASTQueenClassifier(nn.Module):
         dropout: float = 0.2,
         mean: float = None,
         std: float = None,
-        do_normalize: bool = None
+        do_normalize: bool = None,
+        target_sample_rate: int = 16000,
     ):
         super().__init__()
 
         self.model_name = model_name
-        self.extractor = ASTFeatureExtractor.from_pretrained(model_name, do_normalize=do_normalize, mean=mean, std=std)
+        self.extractor = ASTFeatureExtractor.from_pretrained(
+            model_name, do_normalize=do_normalize, mean=mean, std=std
+        )
         self.backbone = ASTModel.from_pretrained(model_name)
 
         hidden_dim = self.backbone.config.hidden_size
@@ -35,6 +43,8 @@ class ASTQueenClassifier(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hidden_dim // 2, 1),
         )
+
+        self.target_sample_rate = target_sample_rate
 
     @property
     def device(self) -> torch.device:
@@ -82,7 +92,7 @@ class ASTQueenClassifier(nn.Module):
 
         inputs = self.extractor(
             [wav.detach().cpu().numpy() for wav in waveforms_16k],
-            sampling_rate=16000,
+            sampling_rate=self.target_sample_rate,
             return_tensors="pt",
         )
 

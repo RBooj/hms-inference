@@ -6,6 +6,7 @@ from hms_inference.audio_inspect_joiner import (
     attach_inspection_labels_2021,
     attach_inspection_labels_2022,
 )
+from hms_inference.config_loader import QueenPipelineConfig
 
 
 def ensure_processed_dir(project_root: Path) -> Path:
@@ -14,15 +15,15 @@ def ensure_processed_dir(project_root: Path) -> Path:
     return processed_dir
 
 
-def build_dataset() -> None:
-    project_root = Path.cwd()
-    processed_dir = ensure_processed_dir(project_root)
+def build_dataset(cfg: QueenPipelineConfig) -> None:
+    processed_dir = cfg.paths.processed_dir
+    processed_dir.mkdir(parents=True, exist_ok=True)
 
     print("[Build Dataset] Labeling 2021 Data:")
-    labeled_2021 = attach_inspection_labels_2021()
+    labeled_2021 = attach_inspection_labels_2021(cfg)
 
     print("[Build Dataset] Labeling 2022 Data:")
-    labeled_2022 = attach_inspection_labels_2022()
+    labeled_2022 = attach_inspection_labels_2022(cfg)
 
     print("[Build Dataset] Saving labeled data as parquet:")
     labeled_2021.to_parquet(
@@ -49,6 +50,3 @@ def build_dataset() -> None:
 
     print("\n[Build Dataset] Done.")
     print(f"[Build Dataset] Outputs written to: {processed_dir}")
-
-if __name__ == "__main__":
-    build_dataset()

@@ -7,26 +7,31 @@ from hms_inference.inspections_loader import (
     load_inspections_2022,
 )
 from hms_inference.audio_loader import discover_wav_files, build_chunk_df
+from hms_inference.config_loader import QueenPipelineConfig
 
-MAX_GAP_DAYS = 1  # Be > 0
+# MAX_GAP_DAYS = 1  # Be > 0
 
 
-def attach_inspection_labels_2022() -> pd.DataFrame:
+def attach_inspection_labels_2022(cfg: QueenPipelineConfig) -> pd.DataFrame:
     """
     Extract annotations from inspections_2022.csv spreadsheet
     Extract audio file metadata from filenames
     split audio files into chunks with the closest inspection record
     attach annotations to audio chunks
     """
-    project_root = Path.cwd()
+    project_root = cfg.project.project_root
     audio_root = project_root / "data" / "UrBAN" / "data" / "audio" / "beehives_2022"
+    tolerance = pd.Timedelta(days=cfg.labels.max_gap_days)
 
     wavs_2022 = discover_wav_files(audio_root)
     print(f"[Attach Labels 2022] Discovered {len(wavs_2022)} wavs in 2022 audio folder")
 
     chunks_2022 = build_chunk_df(
-        wavs_2022, 2022
-    )  # optinally set chunking strategy here
+        wavs_2022,
+        2022,
+        chunk_length_s=cfg.audio.chunk_length_s,
+        hop_length_s=cfg.audio.hop_length_s,
+    )
     print(f"[Attach Labels 2022] Built {len(chunks_2022)} chunks.")
 
     inspections_2022 = load_inspections_2022(project_root)
@@ -38,8 +43,6 @@ def attach_inspection_labels_2022() -> pd.DataFrame:
     inspections_2022 = inspections_2022.sort_values(
         ["inspection_date", "hive_id"]
     ).reset_index(drop=True)
-
-    tolerance = pd.Timedelta(days=MAX_GAP_DAYS)
 
     labeled = pd.merge_asof(
         chunks_2022,
@@ -80,22 +83,26 @@ def attach_inspection_labels_2022() -> pd.DataFrame:
     return labeled
 
 
-def attach_inspection_labels_2021() -> pd.DataFrame:
+def attach_inspection_labels_2021(cfg: QueenPipelineConfig) -> pd.DataFrame:
     """
     Extract annotations from inspections_2021.csv spreadsheet
     Extract audio file metadata from filenames
     split audio files into chunks with the closest inspection record
     attach annotations to audio chunks
     """
-    project_root = Path.cwd()
+    project_root = cfg.project.project_root
     audio_root = project_root / "data" / "UrBAN" / "data" / "audio" / "beehives_2021"
+    tolerance = pd.Timedelta(days=cfg.labels.max_gap_days)
 
     wavs_2021 = discover_wav_files(audio_root)
     print(f"[Attach Labels 2021] Discovered {len(wavs_2021)} wavs in 2021 audio folder")
 
     chunks_2021 = build_chunk_df(
-        wavs_2021, 2021
-    )  # optinally set chunking strategy here
+        wavs_2021,
+        2021,
+        chunk_length_s=cfg.audio.chunk_length_s,
+        hop_length_s=cfg.audio.hop_length_s,
+    )
     print(f"[Attach Labels 2021] Built {len(chunks_2021)} chunks.")
 
     inspections_2021 = load_inspections_2021(project_root)
@@ -107,8 +114,6 @@ def attach_inspection_labels_2021() -> pd.DataFrame:
     inspections_2021 = inspections_2021.sort_values(
         ["inspection_date", "hive_id"]
     ).reset_index(drop=True)
-
-    tolerance = pd.Timedelta(days=MAX_GAP_DAYS)
 
     labeled = pd.merge_asof(
         chunks_2021,

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from itertools import combinations
+from hms_inference.config_loader import QueenPipelineConfig
 
 import pandas as pd
 
-RANDOM_SEED = 42
 QUEEN_TASK_COLUMNS = [
     "dataset_year",
     "wav_path",
@@ -20,8 +20,6 @@ QUEEN_TASK_COLUMNS = [
     "days_since_inspection",
     "queen_present",
 ]
-
-SUBSAMPLE_FRACTION = 0.05
 
 
 def load_labeled_chunks(processed_dir: Path) -> pd.DataFrame:
@@ -156,10 +154,9 @@ def print_dataframe_summary(name: str, df: pd.DataFrame) -> None:
     print(df["queen_present"].value_counts(dropna=False))
 
 
-def create_queen_splits() -> None:
-    project_root = Path.cwd()
-    processed_dir = project_root / "data" / "processed"
-    splits_dir = project_root / "data" / "splits"
+def create_queen_splits(cfg: QueenPipelineConfig) -> None:
+    processed_dir = cfg.paths.processed_dir
+    splits_dir = cfg.paths.splits_dir
     splits_dir.mkdir(parents=True, exist_ok=True)
 
     print("[Queen Split] Loading labeled chunk parquet files...")
@@ -183,11 +180,16 @@ def create_queen_splits() -> None:
     queen_test = filter_by_hives(queen_df, test_stats["hives"])
 
     # Subsampling for training dataset (finetuning takes too long without this)
-    if SUBSAMPLE_FRACTION < 1.0:
+    if cfg.split.subsample_fraction < 1.0:
         original_len = len(queen_train)
-        queen_train = queen_train.sample(frac=SUBSAMPLE_FRACTION, random_state=42,).reset_index(drop=True)
-        print(f"[Subsample] train: {original_len} -> {len(queen_train)} "
-              f"({SUBSAMPLE_FRACTION*100:.1f}%)")
+        queen_train = queen_train.sample(
+            frac=cfg.split.subsample_fraction,
+            random_state=cfg.split.random_seed,
+        ).reset_index(drop=True)
+        print(
+            f"[Subsample] train: {original_len} -> {len(queen_train)} "
+            f"({cfg.split.subsample_fraction*100:.1f}%)"
+        )
 
     queen_train.to_parquet(splits_dir / "queen_train.parquet", index=False)
     queen_val.to_parquet(splits_dir / "queen_val.parquet", index=False)
@@ -201,7 +203,3 @@ def create_queen_splits() -> None:
     print(splits_dir / "queen_train.parquet")
     print(splits_dir / "queen_val.parquet")
     print(splits_dir / "queen_test.parquet")
-
-
-if __name__ == "__main__":
-    create_queen_splits()

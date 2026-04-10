@@ -10,18 +10,17 @@ import torchaudio
 from transformers import ASTFeatureExtractor
 from tqdm import tqdm
 
-
 TARGET_SAMPLE_RATE = 16000
 
 
-def load_audio_mono_16k(path: str) -> torch.Tensor:
+def load_audio_mono(path: str, target_sr: int = TARGET_SAMPLE_RATE) -> torch.Tensor:
     wav, sr = torchaudio.load(path)
 
     if wav.size(0) > 1:
         wav = wav.mean(dim=0, keepdim=True)
 
-    if sr != TARGET_SAMPLE_RATE:
-        wav = torchaudio.functional.resample(wav, sr, TARGET_SAMPLE_RATE)
+    if sr != target_sr:
+        wav = torchaudio.functional.resample(wav, sr, target_sr)
 
     return wav.squeeze(0).to(torch.float32)
 
@@ -73,6 +72,7 @@ class QueenAudioDataset(Dataset):
     def __init__(
         self,
         parquet_path: str | Path,
+        target_sample_rate: int,
         cache_waveforms: bool = False,
     ):
         self.parquet_path = Path(parquet_path)
@@ -86,6 +86,8 @@ class QueenAudioDataset(Dataset):
         self.cache_waveforms = cache_waveforms
         self._waveform_cache: dict[str, torch.Tensor] = {}
 
+        self.target_sample_rate = target_sample_rate
+
         if len(self.df) == 0:
             raise ValueError(f"No usable rows found in {self.parquet_path}")
 
@@ -96,7 +98,7 @@ class QueenAudioDataset(Dataset):
         if self.cache_waveforms and wav_path in self._waveform_cache:
             return self._waveform_cache[wav_path]
 
-        wav = load_audio_mono_16k(wav_path)
+        wav = load_audio_mono(wav_path, self.target_sample_rate)
 
         if self.cache_waveforms:
             self._waveform_cache[wav_path] = wav
@@ -113,7 +115,7 @@ class QueenAudioDataset(Dataset):
             waveform,
             start_s=float(row["chunk_start_s"]),
             end_s=float(row["chunk_end_s"]),
-            sample_rate=TARGET_SAMPLE_RATE,
+            sample_rate=self.target_sample_rate,
         )
 
         label = torch.tensor(normalize_label(row["queen_present"]), dtype=torch.float32)
@@ -156,13 +158,18 @@ def collate_queen_audio(batch: list[dict]) -> dict:
         "days_since_inspection": days_since,
         "metas": metas,
     }
+
+
 import json
+
 
 def compute_ast_stats(
     train_loader,
     model_name: str,
+    target_sample_rate: int,
     stats_json_path: str | Path | None = None,
     force_recompute: bool = False,
+    stats_metadata: dict | None = None,
 ) -> tuple[float, float]:
     """
     Compute dataset-specific AST input mean/std on the TRAIN split only.
@@ -175,11 +182,7 @@ def compute_ast_stats(
 
     stats_json_path = Path(stats_json_path) if stats_json_path is not None else None
 
-    if (
-        stats_json_path is not None
-        and stats_json_path.exists()
-        and not force_recompute
-    ):
+    if stats_json_path is not None and stats_json_path.exists() and not force_recompute:
         with stats_json_path.open("r", encoding="utf-8") as f:
             payload = json.load(f)
 
@@ -202,30 +205,30 @@ def compute_ast_stats(
     total_count = 0
 
     for batch in tqdm(train_loader, desc="Computing AST stats"):
-        waveforms = batch["waveforms"]   # <-- plural, because this is a collated batch
+        waveforms = batch["waveforms"]  # <-- plural, because this is a collated batch
 
         for wav in waveforms:
             wav_np = wav.detach().cpu().numpy()
 
             inputs = feature_extractor(
                 wav_np,
-                sampling_rate=TARGET_SAMPLE_RATE,
+                sampling_rate=target_sample_rate,
                 return_tensors="pt",
             )
 
-            x = inputs["input_values"]   # shape usually [1, time, mel_bins]
+            x = inputs["input_values"]  # shape usually [1, time, mel_bins]
 
             total_sum += x.sum().item()
-            total_sq_sum += (x ** 2).sum().item()
+            total_sq_sum += (x**2).sum().item()
             total_count += x.numel()
 
     if total_count == 0:
         raise ValueError("AST stats computation saw zero input elements.")
 
     mean = total_sum / total_count
-    var = (total_sq_sum / total_count) - (mean ** 2)
+    var = (total_sq_sum / total_count) - (mean**2)
     var = max(var, 0.0)
-    std = var ** 0.5
+    std = var**0.5
 
     if stats_json_path is not None:
         stats_json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -234,6 +237,7 @@ def compute_ast_stats(
             "mean": mean,
             "std": std,
             "num_elements": total_count,
+            "computed_with_settings": stats_metadata,
         }
         with stats_json_path.open("w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
