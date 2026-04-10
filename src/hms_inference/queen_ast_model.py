@@ -17,12 +17,13 @@ class ASTQueenClassifier(nn.Module):
         model_name: str = "MIT/ast-finetuned-audioset-10-10-0.448",
         dropout: float = 0.2,
         mean: float = None,
-        std: float = None
+        std: float = None,
+        do_normalize: bool = None
     ):
         super().__init__()
 
         self.model_name = model_name
-        self.extractor = ASTFeatureExtractor.from_pretrained(model_name, do_normalize=False, mean=mean, std=std)
+        self.extractor = ASTFeatureExtractor.from_pretrained(model_name, do_normalize=do_normalize, mean=mean, std=std)
         self.backbone = ASTModel.from_pretrained(model_name)
 
         hidden_dim = self.backbone.config.hidden_size

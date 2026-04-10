@@ -50,6 +50,9 @@ NUM_WORKERS = 6
 PIN_MEMORY = torch.cuda.is_available()
 LOG_EVERY_N_BATCHES = 10
 
+FORCE_RECOMPUTE_NORMALIZATIONS = False
+DO_NORMALIZE = False
+
 
 def format_gpu_mem() -> str:
     if not torch.cuda.is_available():
@@ -190,8 +193,8 @@ def build_stats_loader(train_ds: QueenAudioDataset) -> DataLoader:
         pin_memory=PIN_MEMORY,
     )
 
-def configure_model(mean: float, std: float) -> ASTQueenClassifier:
-    model = ASTQueenClassifier(model_name=MODEL_NAME, dropout=DROPOUT, mean=mean, std=std)
+def configure_model(mean: float, std: float, do_normalize: bool) -> ASTQueenClassifier:
+    model = ASTQueenClassifier(model_name=MODEL_NAME, dropout=DROPOUT, mean=mean, std=std, do_normalize=do_normalize)
 
     if FREEZE_STRATEGY == "frozen":
         model.freeze_backbone()
@@ -395,11 +398,11 @@ def main() -> None:
         stats_loader,
         MODEL_NAME,
         stats_json_path=stats_path,
-        force_recompute=False,
+        force_recompute=FORCE_RECOMPUTE_NORMALIZATIONS,
     )
     print(f"[Stats] mean={mean:.6f}, std={std:.6f}")
 
-    model = configure_model(mean, std)
+    model = configure_model(mean, std, DO_NORMALIZE)
     print_parameter_summary(model)
     optimizer = build_optimizer(model)
 
