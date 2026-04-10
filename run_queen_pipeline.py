@@ -11,6 +11,7 @@ from hms_inference.classifier_queen_finetune import train_queen_model
 
 
 def main() -> None:
+    print("[Runner] Starting up...")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
@@ -21,6 +22,8 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+
+    print(f"[Runner] Parsed config options from: {args.config}")
 
     run_dir = cfg.paths.models_dir / cfg.project.name
     run_dir.mkdir(parents=True, exist_ok=True)
