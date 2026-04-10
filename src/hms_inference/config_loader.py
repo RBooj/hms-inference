@@ -88,6 +88,17 @@ class RuntimeConfig:
     log_every_n_batches: int
 
 
+def _convert_paths(obj):
+    if isinstance(obj, Path):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: _convert_paths(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_paths(v) for v in obj]
+    else:
+        return obj
+
+
 @dataclass(frozen=True)
 class QueenPipelineConfig:
     project: ProjectConfig
@@ -103,12 +114,9 @@ class QueenPipelineConfig:
     runtime: RuntimeConfig
 
     def to_dict(self) -> dict:
-        return {
+        raw = {
             "project": asdict(self.project),
-            "paths": {
-                k: str(v) if isinstance(v, Path) else v
-                for k, v in asdict(self.paths).items()
-            },
+            "paths": asdict(self.paths),
             "audio": asdict(self.audio),
             "labels": asdict(self.labels),
             "split": asdict(self.split),
@@ -119,6 +127,7 @@ class QueenPipelineConfig:
             "evaluation": asdict(self.evaluation),
             "runtime": asdict(self.runtime),
         }
+        return _convert_paths(raw)
 
 
 def load_config(path: str | Path) -> QueenPipelineConfig:
