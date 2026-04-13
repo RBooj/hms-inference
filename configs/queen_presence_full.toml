@@ -22,7 +22,7 @@ max_gap_days = 1
 
 [split]
 random_seed = 42
-subsample_fraction = 0.05
+subsample_fraction = 1
 
 [model]
 model_name = "MIT/ast-finetuned-audioset-10-10-0.448"
@@ -55,6 +55,6 @@ threshold_scan_end = 0.95
 threshold_scan_step = 0.05
 
 [runtime]
-num_workers = 6
+num_workers = 5
 pin_memory = true
 log_every_n_batches = 10
