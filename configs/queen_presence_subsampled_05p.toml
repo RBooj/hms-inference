@@ -1,0 +1,60 @@
+[project]
+name = "queen_presence_subsampled_05p"
+description = "Frozen AST using 5% of training data"
+project_root = "."
+
+[paths]
+processed_dir = "data/processed"
+splits_dir = "data/splits"
+models_dir = "data/models"
+normalization_stats_filename = "queen_ast_stats.json"
+metrics_filename = "queen_ast_finetune_metrics.json"
+checkpoint_filename = "queen_ast_finetune_best.pt"
+
+[audio]
+target_sample_rate = 16000
+chunk_length_s = 10.0
+hop_length_s = 10.0
+cache_waveforms = false
+
+[labels]
+max_gap_days = 1
+
+[split]
+random_seed = 42
+subsample_fraction = 0.05
+
+[model]
+model_name = "MIT/ast-finetuned-audioset-10-10-0.448"
+dropout = 0.2
+do_normalize = false
+force_recompute_normalizations = false
+
+[training]
+batch_size = 5
+max_epochs = 12
+patience = 3
+head_learning_rate = 5e-5
+backbone_learning_rate = 5e-6
+weight_decay = 1e-4
+grad_clip_norm = 1.0
+use_amp = true
+
+[finetuning]
+freeze_strategy = "frozen"
+unfreeze_last_n = 1
+
+[imbalance]
+use_class_weighting = true
+use_balanced_sampler = true
+
+[evaluation]
+default_threshold = 0.6
+threshold_scan_start = 0.10
+threshold_scan_end = 0.95
+threshold_scan_step = 0.05
+
+[runtime]
+num_workers = 6
+pin_memory = true
+log_every_n_batches = 10
